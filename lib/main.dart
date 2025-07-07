@@ -1,34 +1,44 @@
 import 'dart:convert';
 import 'package:flutter/material.dart';
 import 'package:web_socket_channel/io.dart';
+
 import 'controllers/sensor_controller.dart';
 import 'models/sensor_sample.dart';
+import 'screens/home_screen.dart';
 
 void main() {
-  runApp(SensorApp());
+  runApp(const SensorApp());
 }
 
 class SensorApp extends StatelessWidget {
+  const SensorApp({super.key});
+
   @override
   Widget build(BuildContext context) {
     return MaterialApp(
-      title: 'Sensor Streaming',
-      home: SensorHomePage(),
+      title: 'Sensor Stream',
+      theme: ThemeData(
+        useMaterial3: true,
+        colorSchemeSeed: Colors.indigo,
+      ),
+      home: const SensorHome(),
     );
   }
 }
 
-class SensorHomePage extends StatefulWidget {
+class SensorHome extends StatefulWidget {
+  const SensorHome({super.key});
+
   @override
-  _SensorHomePageState createState() => _SensorHomePageState();
+  State<SensorHome> createState() => _SensorHomeState();
 }
 
-class _SensorHomePageState extends State<SensorHomePage> {
+class _SensorHomeState extends State<SensorHome> {
   late SensorController controller;
   late IOWebSocketChannel channel;
 
-  final List<String> activities = ['Sentado', 'Caminando', 'Corriendo'];
-  String selectedActivity = 'Sentado';
+  String? selectedActivity;
+  bool showSelector = false;
 
   @override
   void initState() {
@@ -36,16 +46,31 @@ class _SensorHomePageState extends State<SensorHomePage> {
 
     controller = SensorController();
 
-    // REEMPLAZA CON TU IP LOCAL O SERVIDOR
-    channel = IOWebSocketChannel.connect('ws://192.168.0.100:8080');
-
-    controller.onSample = (sample) {
-      final data = sample.toJson(selectedActivity);
-      channel.sink.add(jsonEncode(data));
-      print('Enviado: $data');
+    controller.onSuddenChange = () {
+      setState(() {
+        selectedActivity = null; // para que el Dropdown empiece sin selección
+        showSelector = true;
+      });
     };
 
+    controller.onSample = (sample) {
+      if (selectedActivity != null) {
+        final data = sample.toJson(selectedActivity!);
+        channel.sink.add(jsonEncode(data));
+        print('Enviado: $data');
+      }
+    };
+
+    channel = IOWebSocketChannel.connect('ws://192.168.0.100:8080'); // ajusta tu IP
+
     controller.startListening();
+  }
+
+  void _onActivitySelected(String activity) {
+    setState(() {
+      selectedActivity = activity;
+      showSelector = false;
+    });
   }
 
   @override
@@ -57,28 +82,9 @@ class _SensorHomePageState extends State<SensorHomePage> {
 
   @override
   Widget build(BuildContext context) {
-    return Scaffold(
-      appBar: AppBar(title: Text('Streaming en Tiempo Real')),
-      body: Center(
-        child: Column(
-          mainAxisAlignment: MainAxisAlignment.center,
-          children: [
-            Text('Actividad actual:', style: TextStyle(fontSize: 18)),
-            DropdownButton<String>(
-              value: selectedActivity,
-              items: activities.map((act) => DropdownMenuItem(
-                value: act,
-                child: Text(act),
-              )).toList(),
-              onChanged: (value) {
-                if (value != null) {
-                  setState(() => selectedActivity = value);
-                }
-              },
-            ),
-          ],
-        ),
-      ),
+    return HomeScreen(
+      currentActivity: showSelector ? null : null,
+      onActivitySelected: _onActivitySelected,
     );
   }
 }
