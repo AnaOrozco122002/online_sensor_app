@@ -1,6 +1,9 @@
+// lib/models/sensor_sample.dart
 class SensorSample {
-  final DateTime timestamp;
-  final double ax, ay, az, gx, gy, gz;
+  DateTime timestamp;
+  double ax, ay, az;
+  double gx, gy, gz;
+  String? activity;
 
   SensorSample({
     required this.timestamp,
@@ -10,12 +13,23 @@ class SensorSample {
     required this.gx,
     required this.gy,
     required this.gz,
+    this.activity,
   });
 
-  Map<String, dynamic> toJson(String activity) => {
-    'timestamp': timestamp.toIso8601String(),
-    'activity': activity,
-    'accelerometer': {'x': ax, 'y': ay, 'z': az},
-    'gyroscope': {'x': gx, 'y': gy, 'z': gz},
-  };
+  factory SensorSample.empty() {
+    return SensorSample(
+      timestamp: DateTime.now(),
+      ax: 0, ay: 0, az: 0,
+      gx: 0, gy: 0, gz: 0,
+    );
+  }
+
+  SensorSample copy() {
+    return SensorSample(
+      timestamp: timestamp,
+      ax: ax, ay: ay, az: az,
+      gx: gx, gy: gy, gz: gz,
+      activity: activity,
+    );
+  }
 }
