@@ -1,10 +1,9 @@
-// lib/services/ws_rpc.dart
 import 'dart:convert';
 import 'dart:async';
 import 'package:web_socket_channel/web_socket_channel.dart';
 
 Future<Map<String, dynamic>> wsRpc(Map<String, dynamic> payload,
-    {String url = 'wss://online-sensor-backend.onrender.com', Duration timeout = const Duration(seconds: 10)}) async {
+    {String url = 'wss://online-sensor-backend.onrender.com', Duration timeout = const Duration(seconds: 12)}) async {
   final ch = WebSocketChannel.connect(Uri.parse(url));
   final c = Completer<Map<String, dynamic>>();
   late StreamSubscription sub;
