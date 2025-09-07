@@ -1,78 +1,133 @@
 // lib/services/websocket_service.dart
 import 'dart:async';
 import 'dart:convert';
-import 'package:flutter/foundation.dart';
 import 'package:web_socket_channel/web_socket_channel.dart';
-import 'package:web_socket_channel/status.dart' as ws_status;
-import '../models/sensor_window.dart';
 
+/// Servicio WebSocket con:
+/// - Conexión persistente y reintentos
+/// - RPC simple (cola de requests -> responses)
+/// - Envío de ventanas con id_usuario (int) y session_id (int?)
+/// - Callback onConnectionChange(bool) para la UI
 class WebSocketService {
-  static const String _wsUrl = 'wss://online-sensor-backend.onrender.com';
-  WebSocketChannel? _channel;
-  StreamSubscription? _sub;
-  bool _isConnected = false;
-  bool _isConnecting = false;
-  Timer? _reconnectTimer;
-  Duration _backoff = const Duration(seconds: 2);
+  final Uri _uri = Uri.parse('wss://online-sensor-backend.onrender.com');
+  late WebSocketChannel _channel;
+
+  // Cola de completers: cada sendRpc espera el próximo mensaje como respuesta.
+  final List<Completer<dynamic>> _pending = [];
+
+  bool _connected = false;
+  bool get isConnected => _connected;
+
+  /// Callback opcional para notificar cambios de conexión
+  void Function(bool connected)? onConnectionChange;
 
   WebSocketService() {
     _connect();
   }
 
-  void _log(String m) { if (kDebugMode) print('[WS] $m'); }
+  void _setConnected(bool c) {
+    _connected = c;
+    if (onConnectionChange != null) {
+      onConnectionChange!(c);
+    }
+  }
 
   void _connect() {
-    if (_isConnecting) return;
-    _isConnecting = true;
-    _cancelReconnectTimer();
+    _channel = WebSocketChannel.connect(_uri);
+    _setConnected(true);
 
-    _log('Conectando a $_wsUrl ...');
-    try {
-      _channel = WebSocketChannel.connect(Uri.parse(_wsUrl));
-      _sub = _channel!.stream.listen(
-            (event) { _isConnected = true; _log('<- $event'); },
-        onError: (e) { _isConnected = false; _log('error: $e'); _scheduleReconnect(); },
-        onDone: () { _isConnected = false; _log('cerrado'); _scheduleReconnect(); },
-        cancelOnError: true,
-      );
-      _isConnecting = false;
-      _log('Conectado ✅');
-    } catch (e) {
-      _isConnecting = false; _isConnected = false;
-      _log('excepción al conectar: $e');
-      _scheduleReconnect();
+    _channel.stream.listen(
+          (message) {
+        dynamic decoded;
+        try {
+          decoded = jsonDecode(message);
+        } catch (_) {
+          decoded = message;
+        }
+        if (_pending.isNotEmpty) {
+          final c = _pending.removeAt(0);
+          if (!c.isCompleted) c.complete(decoded);
+        }
+      },
+      onDone: () {
+        _setConnected(false);
+        // Reintento simple
+        Future.delayed(const Duration(seconds: 2), () {
+          if (!_connected) _connect();
+        });
+      },
+      onError: (e, st) {
+        _setConnected(false);
+        // Completa cualquier RPC pendiente con error
+        while (_pending.isNotEmpty) {
+          final c = _pending.removeAt(0);
+          if (!c.isCompleted) c.completeError(e, st);
+        }
+        // Reintento
+        Future.delayed(const Duration(seconds: 2), () {
+          if (!_connected) _connect();
+        });
+      },
+      cancelOnError: true,
+    );
+  }
+
+  /// Envía un RPC y espera una única respuesta del servidor.
+  Future<dynamic> sendRpc(Map<String, dynamic> payload) {
+    if (!_connected) {
+      return Future.error('WS no conectado');
     }
-  }
-
-  void _scheduleReconnect() {
-    if (_reconnectTimer != null) return;
-    final delay = _backoff;
-    _backoff = Duration(seconds: (_backoff.inSeconds * 2).clamp(2, 30));
-    _log('reintento en ${delay.inSeconds}s ...');
-    _reconnectTimer = Timer(delay, () { _reconnectTimer = null; _connect(); });
-  }
-
-  void _cancelReconnectTimer() { _reconnectTimer?.cancel(); _reconnectTimer = null; _backoff = const Duration(seconds: 2); }
-
-  bool get isConnected => _isConnected;
-
-  void sendWindow(SensorWindow window, {String? activity, required String userId}) {
-    final ch = _channel;
-    if (ch == null) { _log('canal nulo; reconectar'); _connect(); return; }
-    final payload = window.toJson(activity: activity, userId: userId);
-    final data = jsonEncode(payload);
-    try {
-      ch.sink.add(data);
-      _log('-> ventana (${window.sampleCount} muestras, act=$activity, uid=$userId)');
-    } catch (e) {
-      _isConnected = false; _log('error al enviar: $e'); _scheduleReconnect();
+    // Validar que 'type' sea String (evita "type is not a subtype of String")
+    final t = payload['type'];
+    if (t is! String) {
+      return Future.error("RPC 'type' debe ser String");
     }
+
+    final completer = Completer<dynamic>();
+    _pending.add(completer);
+
+    try {
+      _channel.sink.add(jsonEncode(payload));
+    } catch (e, st) {
+      _pending.remove(completer);
+      completer.completeError(e, st);
+    }
+    return completer.future.timeout(
+      const Duration(seconds: 20),
+      onTimeout: () {
+        if (!completer.isCompleted) {
+          _pending.remove(completer);
+          throw TimeoutException('RPC timeout');
+        }
+        return null;
+      },
+    );
   }
 
-  Future<void> dispose() async {
-    _cancelReconnectTimer();
-    await _sub?.cancel();
-    try { await _channel?.sink.close(ws_status.normalClosure); } catch (_) {}
-    _channel = null; _isConnected = false; _log('dispose');
+  /// Envía una ventana ya serializada (windowJson) con tipos correctos.
+  /// - idUsuario: debe ser INT (no string)
+  /// - sessionId: INT o null
+  /// - activity: opcional
+  Future<void> sendWindow({
+    required Map<String, dynamic> windowJson,
+    required int idUsuario,
+    int? sessionId,
+    String? activity,
+  }) async {
+    if (!_connected) throw StateError('WS no conectado');
+
+    final payload = Map<String, dynamic>.from(windowJson);
+    payload['id_usuario'] = idUsuario; // int (CORRECTO)
+    if (sessionId != null) payload['session_id'] = sessionId; // int
+    if (activity != null) payload['activity'] = activity;
+
+    _channel.sink.add(jsonEncode(payload));
+  }
+
+  Future<void> close() async {
+    try {
+      await _channel.sink.close();
+    } catch (_) {}
+    _setConnected(false);
   }
 }

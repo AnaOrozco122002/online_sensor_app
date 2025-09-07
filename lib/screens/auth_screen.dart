@@ -1,3 +1,4 @@
+// lib/screens/auth_screen.dart
 import 'package:flutter/material.dart';
 import '../services/user_prefs.dart';
 import '../services/ws_rpc.dart';
@@ -63,11 +64,16 @@ class _AuthScreenState extends State<AuthScreen> with SingleTickerProviderStateM
     if (!_loginKey.currentState!.validate()) return;
     setState(() => _busy = true);
     try {
-      final res = await wsRpc({"type": "login", "email": _loginEmail.text.trim(), "password": _loginPwd.text});
+      final res = await wsRpc({
+        "type": "login",
+        "email": _loginEmail.text.trim(),
+        "password": _loginPwd.text,
+      });
       if (res["ok"] == true) {
         await UserPrefs.saveSession(
-          userId: res["id_usuario"],
-          email: res["email"],
+          userId: res["id_usuario"].toString(),             // guardamos como string localmente
+          email: res["email"] as String? ?? "",
+          userName: res["display_name"] as String?,          // <-- importante para mostrar nombre
           password: _loginPwd.text,
         );
         if (mounted) widget.onAuthOk?.call();
@@ -93,7 +99,7 @@ class _AuthScreenState extends State<AuthScreen> with SingleTickerProviderStateM
     setState(() => _busy = true);
     try {
       final bdayStr = _regBirthday != null
-          ? "${_regBirthday!.year.toString().padLeft(4,'0')}-${_regBirthday!.month.toString().padLeft(2,'0')}-${_regBirthday!.day.toString().padLeft(2,'0')}"
+          ? "${_regBirthday!.year.toString().padLeft(4, '0')}-${_regBirthday!.month.toString().padLeft(2, '0')}-${_regBirthday!.day.toString().padLeft(2, '0')}"
           : null;
 
       final res = await wsRpc({
@@ -106,9 +112,9 @@ class _AuthScreenState extends State<AuthScreen> with SingleTickerProviderStateM
 
       if (res["ok"] == true) {
         await UserPrefs.saveSession(
-          userId: res["id_usuario"],
-          email: res["email"],
-          userName: res["display_name"],
+          userId: res["id_usuario"].toString(),
+          email: res["email"] as String? ?? "",
+          userName: res["display_name"] as String?,
           password: _regPwd.text,
         );
         if (mounted) widget.onAuthOk?.call();
@@ -132,6 +138,8 @@ class _AuthScreenState extends State<AuthScreen> with SingleTickerProviderStateM
   @override
   Widget build(BuildContext context) {
     final cs = Theme.of(context).colorScheme;
+    final bottomPad = MediaQuery.of(context).viewInsets.bottom;
+
     return Scaffold(
       backgroundColor: cs.surface,
       appBar: AppBar(
@@ -150,52 +158,54 @@ class _AuthScreenState extends State<AuthScreen> with SingleTickerProviderStateM
               controller: _tab,
               children: [
                 // LOGIN
-                Padding(
-                  padding: const EdgeInsets.all(16),
-                  child: Center(
-                    child: ConstrainedBox(
-                      constraints: const BoxConstraints(maxWidth: 480),
-                      child: Card(
-                        elevation: 2,
-                        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
-                        child: Padding(
-                          padding: const EdgeInsets.all(20),
-                          child: Form(
-                            key: _loginKey,
-                            child: Column(
-                              mainAxisSize: MainAxisSize.min,
-                              crossAxisAlignment: CrossAxisAlignment.stretch,
-                              children: [
-                                Text('¡Hola de nuevo!', style: Theme.of(context).textTheme.titleLarge),
-                                const SizedBox(height: 16),
-                                TextFormField(
-                                  controller: _loginEmail,
-                                  decoration: const InputDecoration(labelText: 'Correo electrónico'),
-                                  keyboardType: TextInputType.emailAddress,
-                                  validator: (v) => (v == null || !v.contains('@')) ? 'Correo inválido' : null,
-                                ),
-                                const SizedBox(height: 12),
-                                TextFormField(
-                                  controller: _loginPwd,
-                                  decoration: const InputDecoration(labelText: 'Contraseña'),
-                                  obscureText: true,
-                                  validator: (v) => (v == null || v.isEmpty) ? 'Ingresa tu contraseña' : null,
-                                ),
-                                const SizedBox(height: 8),
-                                Align(
-                                  alignment: Alignment.centerRight,
-                                  child: TextButton(
-                                    onPressed: _gotoChangePassword,
-                                    child: const Text('Cambiar contraseña'),
+                SafeArea(
+                  child: SingleChildScrollView(
+                    padding: EdgeInsets.fromLTRB(16, 16, 16, 16 + bottomPad),
+                    child: Center(
+                      child: ConstrainedBox(
+                        constraints: const BoxConstraints(maxWidth: 480),
+                        child: Card(
+                          elevation: 2,
+                          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+                          child: Padding(
+                            padding: const EdgeInsets.all(20),
+                            child: Form(
+                              key: _loginKey,
+                              child: Column(
+                                mainAxisSize: MainAxisSize.min,
+                                crossAxisAlignment: CrossAxisAlignment.stretch,
+                                children: [
+                                  Text('¡Hola de nuevo!', style: Theme.of(context).textTheme.titleLarge),
+                                  const SizedBox(height: 16),
+                                  TextFormField(
+                                    controller: _loginEmail,
+                                    decoration: const InputDecoration(labelText: 'Correo electrónico'),
+                                    keyboardType: TextInputType.emailAddress,
+                                    validator: (v) => (v == null || !v.contains('@')) ? 'Correo inválido' : null,
                                   ),
-                                ),
-                                const SizedBox(height: 10),
-                                FilledButton(
-                                  onPressed: _doLogin,
-                                  style: FilledButton.styleFrom(minimumSize: const Size.fromHeight(48)),
-                                  child: const Text('Entrar'),
-                                ),
-                              ],
+                                  const SizedBox(height: 12),
+                                  TextFormField(
+                                    controller: _loginPwd,
+                                    decoration: const InputDecoration(labelText: 'Contraseña'),
+                                    obscureText: true,
+                                    validator: (v) => (v == null || v.isEmpty) ? 'Ingresa tu contraseña' : null,
+                                  ),
+                                  const SizedBox(height: 8),
+                                  Align(
+                                    alignment: Alignment.centerRight,
+                                    child: TextButton(
+                                      onPressed: _gotoChangePassword,
+                                      child: const Text('Cambiar contraseña'),
+                                    ),
+                                  ),
+                                  const SizedBox(height: 10),
+                                  FilledButton(
+                                    onPressed: _doLogin,
+                                    style: FilledButton.styleFrom(minimumSize: const Size.fromHeight(48)),
+                                    child: const Text('Entrar'),
+                                  ),
+                                ],
+                              ),
                             ),
                           ),
                         ),
@@ -203,69 +213,72 @@ class _AuthScreenState extends State<AuthScreen> with SingleTickerProviderStateM
                     ),
                   ),
                 ),
-
                 // REGISTER
-                Padding(
-                  padding: const EdgeInsets.all(16),
-                  child: Center(
-                    child: ConstrainedBox(
-                      constraints: const BoxConstraints(maxWidth: 560),
-                      child: Card(
-                        elevation: 2,
-                        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
-                        child: Padding(
-                          padding: const EdgeInsets.all(20),
-                          child: Form(
-                            key: _regKey,
-                            child: Column(
-                              mainAxisSize: MainAxisSize.min,
-                              crossAxisAlignment: CrossAxisAlignment.stretch,
-                              children: [
-                                Text('Crear cuenta', style: Theme.of(context).textTheme.titleLarge),
-                                const SizedBox(height: 16),
-                                TextFormField(
-                                  controller: _regEmail,
-                                  decoration: const InputDecoration(labelText: 'Correo electrónico *'),
-                                  keyboardType: TextInputType.emailAddress,
-                                  validator: (v) => (v == null || !v.contains('@')) ? 'Correo inválido' : null,
-                                ),
-                                const SizedBox(height: 12),
-                                TextFormField(
-                                  controller: _regName,
-                                  decoration: const InputDecoration(labelText: 'Nombre (opcional)'),
-                                ),
-                                const SizedBox(height: 12),
-                                InkWell(
-                                  onTap: _pickBirthday,
-                                  borderRadius: BorderRadius.circular(12),
-                                  child: InputDecorator(
-                                    decoration: const InputDecoration(labelText: 'Fecha de nacimiento (opcional)'),
-                                    child: Text(_regBirthday != null
-                                        ? "${_regBirthday!.day.toString().padLeft(2,'0')}/${_regBirthday!.month.toString().padLeft(2,'0')}/${_regBirthday!.year}"
-                                        : 'Seleccionar…'),
+                SafeArea(
+                  child: SingleChildScrollView(
+                    padding: EdgeInsets.fromLTRB(16, 16, 16, 16 + bottomPad),
+                    child: Center(
+                      child: ConstrainedBox(
+                        constraints: const BoxConstraints(maxWidth: 560),
+                        child: Card(
+                          elevation: 2,
+                          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+                          child: Padding(
+                            padding: const EdgeInsets.all(20),
+                            child: Form(
+                              key: _regKey,
+                              child: Column(
+                                mainAxisSize: MainAxisSize.min,
+                                crossAxisAlignment: CrossAxisAlignment.stretch,
+                                children: [
+                                  Text('Crear cuenta', style: Theme.of(context).textTheme.titleLarge),
+                                  const SizedBox(height: 16),
+                                  TextFormField(
+                                    controller: _regEmail,
+                                    decoration: const InputDecoration(labelText: 'Correo electrónico *'),
+                                    keyboardType: TextInputType.emailAddress,
+                                    validator: (v) => (v == null || !v.contains('@')) ? 'Correo inválido' : null,
                                   ),
-                                ),
-                                const SizedBox(height: 12),
-                                TextFormField(
-                                  controller: _regPwd,
-                                  decoration: const InputDecoration(labelText: 'Contraseña *'),
-                                  obscureText: true,
-                                  validator: (v) => (v == null || v.length < 6) ? 'Mínimo 6 caracteres' : null,
-                                ),
-                                const SizedBox(height: 12),
-                                TextFormField(
-                                  controller: _regPwd2,
-                                  decoration: const InputDecoration(labelText: 'Confirmar contraseña *'),
-                                  obscureText: true,
-                                  validator: (v) => (v == null || v.length < 6) ? 'Mínimo 6 caracteres' : null,
-                                ),
-                                const SizedBox(height: 16),
-                                FilledButton(
-                                  onPressed: _doRegister,
-                                  style: FilledButton.styleFrom(minimumSize: const Size.fromHeight(48)),
-                                  child: const Text('Crear cuenta'),
-                                ),
-                              ],
+                                  const SizedBox(height: 12),
+                                  TextFormField(
+                                    controller: _regName,
+                                    decoration: const InputDecoration(labelText: 'Nombre (opcional)'),
+                                  ),
+                                  const SizedBox(height: 12),
+                                  InkWell(
+                                    onTap: _pickBirthday,
+                                    borderRadius: BorderRadius.circular(12),
+                                    child: InputDecorator(
+                                      decoration: const InputDecoration(labelText: 'Fecha de nacimiento (opcional)'),
+                                      child: Text(
+                                        _regBirthday != null
+                                            ? "${_regBirthday!.day.toString().padLeft(2, '0')}/${_regBirthday!.month.toString().padLeft(2, '0')}/${_regBirthday!.year}"
+                                            : 'Seleccionar…',
+                                      ),
+                                    ),
+                                  ),
+                                  const SizedBox(height: 12),
+                                  TextFormField(
+                                    controller: _regPwd,
+                                    decoration: const InputDecoration(labelText: 'Contraseña *'),
+                                    obscureText: true,
+                                    validator: (v) => (v == null || v.length < 6) ? 'Mínimo 6 caracteres' : null,
+                                  ),
+                                  const SizedBox(height: 12),
+                                  TextFormField(
+                                    controller: _regPwd2,
+                                    decoration: const InputDecoration(labelText: 'Confirmar contraseña *'),
+                                    obscureText: true,
+                                    validator: (v) => (v == null || v.length < 6) ? 'Mínimo 6 caracteres' : null,
+                                  ),
+                                  const SizedBox(height: 16),
+                                  FilledButton(
+                                    onPressed: _doRegister,
+                                    style: FilledButton.styleFrom(minimumSize: const Size.fromHeight(48)),
+                                    child: const Text('Crear cuenta'),
+                                  ),
+                                ],
+                              ),
                             ),
                           ),
                         ),
@@ -275,8 +288,7 @@ class _AuthScreenState extends State<AuthScreen> with SingleTickerProviderStateM
                 ),
               ],
             ),
-            if (_busy)
-              const Center(child: CircularProgressIndicator()),
+            if (_busy) const Center(child: CircularProgressIndicator()),
           ],
         ),
       ),
@@ -297,7 +309,11 @@ class _ChangePasswordScreenState extends State<ChangePasswordScreen> {
   bool _busy = false;
 
   @override
-  void dispose() { _oldCtrl.dispose(); _newCtrl.dispose(); super.dispose(); }
+  void dispose() {
+    _oldCtrl.dispose();
+    _newCtrl.dispose();
+    super.dispose();
+  }
 
   Future<void> _submit() async {
     if (!_formKey.currentState!.validate()) return;
@@ -314,13 +330,16 @@ class _ChangePasswordScreenState extends State<ChangePasswordScreen> {
       });
 
       if (res["ok"] == true) {
+        if (!mounted) return;
         ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Contraseña actualizada')));
         Navigator.of(context).pop();
       } else {
         final msg = res["message"] ?? res["error"] ?? "Error";
+        if (!mounted) return;
         ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('No se pudo actualizar: $msg')));
       }
     } catch (e) {
+      if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Fallo de red: $e')));
     } finally {
       if (mounted) setState(() => _busy = false);
@@ -329,32 +348,36 @@ class _ChangePasswordScreenState extends State<ChangePasswordScreen> {
 
   @override
   Widget build(BuildContext context) {
+    final bottomPad = MediaQuery.of(context).viewInsets.bottom;
     return Scaffold(
       appBar: AppBar(title: const Text('Cambiar contraseña')),
-      body: Padding(
-        padding: const EdgeInsets.all(16),
-        child: Form(
-          key: _formKey,
-          child: Column(children: [
-            TextFormField(
-              controller: _oldCtrl,
-              decoration: const InputDecoration(labelText: 'Contraseña actual'),
-              obscureText: true,
-              validator: (v) => (v == null || v.isEmpty) ? 'Ingresa tu contraseña actual' : null,
-            ),
-            const SizedBox(height: 12),
-            TextFormField(
-              controller: _newCtrl,
-              decoration: const InputDecoration(labelText: 'Nueva contraseña'),
-              obscureText: true,
-              validator: (v) => (v == null || v.length < 6) ? 'Mínimo 6 caracteres' : null,
-            ),
-            const Spacer(),
-            FilledButton(
-              onPressed: _busy ? null : _submit,
-              child: _busy ? const CircularProgressIndicator() : const Text('Actualizar'),
-            ),
-          ]),
+      body: SafeArea(
+        child: SingleChildScrollView(
+          padding: EdgeInsets.fromLTRB(16, 16, 16, 16 + bottomPad),
+          child: Form(
+            key: _formKey,
+            child: Column(children: [
+              TextFormField(
+                controller: _oldCtrl,
+                decoration: const InputDecoration(labelText: 'Contraseña actual'),
+                obscureText: true,
+                validator: (v) => (v == null || v.isEmpty) ? 'Ingresa tu contraseña actual' : null,
+              ),
+              const SizedBox(height: 12),
+              TextFormField(
+                controller: _newCtrl,
+                decoration: const InputDecoration(labelText: 'Nueva contraseña'),
+                obscureText: true,
+                validator: (v) => (v == null || v.length < 6) ? 'Mínimo 6 caracteres' : null,
+              ),
+              const SizedBox(height: 24),
+              FilledButton(
+                onPressed: _busy ? null : _submit,
+                style: FilledButton.styleFrom(minimumSize: const Size.fromHeight(48)),
+                child: _busy ? const CircularProgressIndicator() : const Text('Actualizar'),
+              ),
+            ]),
+          ),
         ),
       ),
     );
