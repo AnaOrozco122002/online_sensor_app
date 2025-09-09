@@ -3,9 +3,10 @@ import 'package:flutter/material.dart';
 import 'controllers/sensor_controller.dart';
 import 'models/sensor_window.dart';
 import 'services/websocket_service.dart';
-import 'widgets/activity_dialog.dart';
 import 'services/user_prefs.dart';
 import 'screens/auth_screen.dart';
+
+// Diálogo de inicio que devuelve (String label, String? reason)
 import 'widgets/session_dialog.dart';
 import 'widgets/profile_photo_dialog.dart';
 
@@ -102,10 +103,9 @@ class _SensorAppState extends State<SensorApp> {
   final SensorController _controller = SensorController();
   final WebSocketService _ws = WebSocketService();
 
-  String? _currentActivity;
+  String? _currentActivity; // etiqueta mostrada en UI
   String _status = 'Sin sesión activa';
   DateTime? _lastSentAt;
-  bool _isChoosingActivity = false;
   int? _activeIntervalId; // intervalos_label.id
   String? _avatarUrl;
 
@@ -119,24 +119,16 @@ class _SensorAppState extends State<SensorApp> {
         setState(() => _status = 'No hay sesión activa. Pulsa Start.');
         return;
       }
-      if (_currentActivity == null && !_isChoosingActivity) {
-        _isChoosingActivity = true;
-        final act = await showActivityDialog(context);
-        _isChoosingActivity = false;
-        if (act == null) return;
-        setState(() => _currentActivity = act);
-      }
       try {
         await _ws.sendWindow(
           windowJson: window.toJson(),
           idUsuario: widget.userId,
           sessionId: _activeIntervalId,
-          activity: _currentActivity,
         );
         setState(() {
           _lastSentAt = DateTime.now();
           _status =
-          'Ventana enviada (${window.sampleCount}) | actividad: $_currentActivity | ID de sesión: $_activeIntervalId';
+          'Ventana enviada (${window.sampleCount}) | etiqueta: ${_currentActivity ?? "—"} | ID de sesión: $_activeIntervalId';
         });
       } catch (e) {
         setState(() => _status = 'Error enviando ventana: $e');
@@ -186,15 +178,22 @@ class _SensorAppState extends State<SensorApp> {
   Future<void> _startSession() async {
     final res = await showSessionDialog(context);
     if (res == null) return;
-    final (label, reason) = res;
 
-    setState(() => _status = 'Creando sesión…');
+    // res es (String, String?)
+    final String label = res.$1;
+    final String? reason = res.$2;
+
+    setState(() {
+      _status = 'Creando sesión…';
+      _currentActivity = label;
+    });
+
     try {
       final rpcResp = await _ws.sendRpc({
         "type": "start_session",
         "id_usuario": widget.userId,
         "label": label,
-        "reason": reason,
+        "reason": reason, // normalmente "initial"
       });
 
       if (rpcResp is Map && rpcResp['ok'] == true) {
@@ -210,7 +209,7 @@ class _SensorAppState extends State<SensorApp> {
       } else {
         final msg = (rpcResp is Map)
             ? (rpcResp['message'] ?? rpcResp['error'] ?? 'Error')
-            : 'Error';
+            : 'Respuesta no válida';
         setState(() => _status = 'No se pudo iniciar sesión: $msg');
       }
     } catch (e) {
@@ -237,7 +236,7 @@ class _SensorAppState extends State<SensorApp> {
       } else {
         final msg = (rpcResp is Map)
             ? (rpcResp['message'] ?? rpcResp['error'] ?? 'Error')
-            : 'Error';
+            : 'Respuesta no válida';
         setState(() => _status = 'No se pudo detener: $msg');
       }
     } catch (e) {
@@ -318,7 +317,6 @@ class _SensorAppState extends State<SensorApp> {
       body: SafeArea(
         child: LayoutBuilder(
           builder: (context, constraints) {
-            final isWide = constraints.maxWidth >= 640;
             return SingleChildScrollView(
               padding: EdgeInsets.only(
                 left: 16,
@@ -331,7 +329,6 @@ class _SensorAppState extends State<SensorApp> {
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.stretch,
                   children: [
-                    // Header usuario + acciones
                     Card(
                       elevation: 1,
                       shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
@@ -379,39 +376,13 @@ class _SensorAppState extends State<SensorApp> {
                               icon: const Icon(Icons.stop),
                               label: const Text('Stop'),
                             ),
-                            if (isWide)
-                              OutlinedButton.icon(
-                                onPressed: () async {
-                                  final act = await showActivityDialog(context);
-                                  if (act != null) setState(() => _currentActivity = act);
-                                },
-                                icon: const Icon(Icons.label_outline),
-                                label: Text(_currentActivity == null
-                                    ? 'Seleccionar actividad'
-                                    : 'Actividad: $_currentActivity'),
-                              ),
                           ],
                         ),
                       ),
                     ),
 
-                    if (!isWide) ...[
-                      const SizedBox(height: 12),
-                      OutlinedButton.icon(
-                        onPressed: () async {
-                          final act = await showActivityDialog(context);
-                          if (act != null) setState(() => _currentActivity = act);
-                        },
-                        icon: const Icon(Icons.label_outline),
-                        label: Text(_currentActivity == null
-                            ? 'Seleccionar actividad'
-                            : 'Actividad: $_currentActivity'),
-                      ),
-                    ],
-
                     const SizedBox(height: 12),
 
-                    // Estado (mejorado)
                     _EstadoCard(
                       status: _status,
                       isConnected: _ws.isConnected,
@@ -537,25 +508,18 @@ class _EstadoCard extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final cs = Theme.of(context).colorScheme;
-
-    final items = <_StatItem>[
-      _StatItem(
-        icon: isConnected ? Icons.wifi : Icons.wifi_off,
-        label: 'Conexión',
-        value: isConnected ? 'Conectado' : 'Desconectado',
-        color: isConnected ? Colors.green : cs.error,
-      ),
-      _StatItem(
+    final tiles = <_StatTile>[
+      _StatTile(
         icon: Icons.confirmation_number_outlined,
         label: 'ID de sesión',
         value: sessionId?.toString() ?? '—',
       ),
-      _StatItem(
+      _StatTile(
         icon: Icons.label_outline,
-        label: 'Actividad',
+        label: 'Etiqueta',
         value: activity ?? '—',
       ),
-      _StatItem(
+      _StatTile(
         icon: Icons.schedule,
         label: 'Último envío',
         value: lastSentAt != null ? lastSentAt!.toLocal().toString() : '—',
@@ -567,124 +531,79 @@ class _EstadoCard extends StatelessWidget {
       shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
       color: cs.surfaceVariant.withOpacity(0.35),
       child: Padding(
-        padding: const EdgeInsets.all(16),
-        child: LayoutBuilder(
-          builder: (context, constraints) {
-            final isWide = constraints.maxWidth >= 720;
-            final cols = isWide ? 3 : 2;
-            const gap = 12.0;
-
-            final totalGapsWidth = gap * (cols - 1);
-            final tileWidth = (constraints.maxWidth - totalGapsWidth) / cols;
-            const tileHeight = 86.0;
-
-            return Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
+        padding: const EdgeInsets.all(14),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
               children: [
-                _SectionHeader(title: 'Estado'),
-                const SizedBox(height: 12),
-                Wrap(
-                  spacing: gap,
-                  runSpacing: gap,
-                  children: items.map((it) {
-                    return SizedBox(
-                      width: tileWidth,
-                      height: tileHeight,
-                      child: _StatTile(
-                        icon: it.icon,
-                        label: it.label,
-                        value: it.value,
-                        color: it.color,
-                      ),
-                    );
-                  }).toList(),
-                ),
-                const SizedBox(height: 14),
                 Container(
-                  width: double.infinity,
-                  padding: const EdgeInsets.all(12),
+                  padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
                   decoration: BoxDecoration(
-                    color: cs.surface,
-                    borderRadius: BorderRadius.circular(12),
-                    border: Border.all(color: cs.outlineVariant.withOpacity(0.4)),
+                    color: cs.primary.withOpacity(0.1),
+                    borderRadius: BorderRadius.circular(999),
+                    border: Border.all(color: cs.primary.withOpacity(0.25)),
                   ),
                   child: Row(
-                    crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      Icon(Icons.info, size: 18, color: cs.onSurfaceVariant),
-                      const SizedBox(width: 8),
-                      Expanded(
-                        child: Text(
-                          status,
-                          style: Theme.of(context).textTheme.bodyMedium,
+                      Icon(Icons.dashboard_outlined, size: 16, color: cs.primary),
+                      const SizedBox(width: 6),
+                      Text(
+                        'Estado',
+                        style: Theme.of(context).textTheme.labelLarge?.copyWith(
+                          color: cs.primary,
+                          fontWeight: FontWeight.w800,
+                          letterSpacing: 0.3,
                         ),
                       ),
                     ],
                   ),
                 ),
               ],
-            );
-          },
+            ),
+            const SizedBox(height: 12),
+            LayoutBuilder(
+              builder: (ctx, cns) {
+                final isWide = cns.maxWidth >= 640;
+                final crossCount = isWide ? 3 : 1;
+                return GridView.count(
+                  physics: const NeverScrollableScrollPhysics(),
+                  shrinkWrap: true,
+                  crossAxisCount: crossCount,
+                  crossAxisSpacing: 10,
+                  mainAxisSpacing: 10,
+                  childAspectRatio: isWide ? 3.4 : 3.2,
+                  children: tiles,
+                );
+              },
+            ),
+            const SizedBox(height: 10),
+            Container(
+              padding: const EdgeInsets.all(12),
+              decoration: BoxDecoration(
+                color: cs.surface,
+                borderRadius: BorderRadius.circular(12),
+                border: Border.all(color: cs.outlineVariant.withOpacity(0.4)),
+              ),
+              child: Row(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Icon(Icons.info, size: 18, color: cs.onSurfaceVariant),
+                  const SizedBox(width: 8),
+                  Expanded(
+                    child: Text(
+                      status,
+                      style: Theme.of(context).textTheme.bodyMedium,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ],
         ),
       ),
     );
   }
-}
-
-class _SectionHeader extends StatelessWidget {
-  const _SectionHeader({required this.title});
-  final String title;
-
-  @override
-  Widget build(BuildContext context) {
-    final cs = Theme.of(context).colorScheme;
-    return Row(
-      children: [
-        Container(
-          padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
-          decoration: BoxDecoration(
-            color: cs.primaryContainer,
-            borderRadius: BorderRadius.circular(999),
-          ),
-          child: Text(
-            title,
-            style: TextStyle(
-              color: cs.onPrimaryContainer,
-              fontWeight: FontWeight.w700,
-            ),
-          ),
-        ),
-        const SizedBox(width: 8),
-        Expanded(
-          child: Container(
-            height: 1.2,
-            decoration: BoxDecoration(
-              gradient: LinearGradient(
-                colors: [
-                  cs.primaryContainer,
-                  cs.outlineVariant.withOpacity(0.0),
-                ],
-              ),
-            ),
-          ),
-        )
-      ],
-    );
-  }
-}
-
-class _StatItem {
-  const _StatItem({
-    required this.icon,
-    required this.label,
-    required this.value,
-    this.color,
-  });
-
-  final IconData icon;
-  final String label;
-  final String value;
-  final Color? color;
 }
 
 class _StatTile extends StatelessWidget {
@@ -703,9 +622,8 @@ class _StatTile extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final cs = Theme.of(context).colorScheme;
-
     return Container(
-      padding: const EdgeInsets.all(12),
+      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
       decoration: BoxDecoration(
         color: cs.surface,
         borderRadius: BorderRadius.circular(12),
@@ -713,33 +631,24 @@ class _StatTile extends StatelessWidget {
       ),
       child: Row(
         children: [
-          Icon(icon, size: 20, color: color ?? cs.onSurfaceVariant),
-          const SizedBox(width: 10),
+          Icon(icon, size: 18, color: color ?? cs.onSurfaceVariant),
+          const SizedBox(width: 8),
+          Text(
+            '$label: ',
+            style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+              color: cs.onSurfaceVariant,
+              fontWeight: FontWeight.w600,
+            ),
+          ),
           Expanded(
-            child: Column(
-              mainAxisAlignment: MainAxisAlignment.center,
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(
-                  label,
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                  style: Theme.of(context).textTheme.labelMedium?.copyWith(
-                    color: cs.onSurfaceVariant,
-                    fontWeight: FontWeight.w600,
-                  ),
-                ),
-                const SizedBox(height: 4),
-                Text(
-                  value,
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                  style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-                    fontWeight: FontWeight.w700,
-                    color: cs.onSurface,
-                  ),
-                ),
-              ],
+            child: Text(
+              value,
+              overflow: TextOverflow.ellipsis,
+              textAlign: TextAlign.right,
+              style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                fontWeight: FontWeight.w700,
+                color: cs.onSurface,
+              ),
             ),
           ),
         ],

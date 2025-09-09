@@ -1,41 +1,85 @@
 import 'package:flutter/material.dart';
 
-/// Devuelve (label, reason) o null si se cancela.
-/// Nota: no se hace dispose inmediato de los controllers para evitar
-/// el crash "TextEditingController used after being disposed" durante
-/// la animación de cierre del diálogo.
-Future<(String, String)?> showSessionDialog(BuildContext context) async {
-  final labelCtrl = TextEditingController();
-  final reasonCtrl = TextEditingController();
-  final formKey = GlobalKey<FormState>();
+/// Devuelve: (actividad, reason) => reason fijo 'initial'
+Future<(String, String?)?> showSessionDialog(BuildContext context) async {
+  final actividades = <String>[
+    'Caminar',
+    'Correr',
+    'Estar de pie',
+    'Sentado',
+    'Acostado',
+    'Subir escaleras',
+    'Bajar escaleras',
+    'Ciclismo',
+  ];
 
-  final res = await showDialog<(String, String)?>(
+  String? _selected; // actividad seleccionada
+
+  return showDialog<(String, String?)>(
     context: context,
-    useRootNavigator: true,
     barrierDismissible: false,
     builder: (ctx) {
+      final cs = Theme.of(ctx).colorScheme;
       return AlertDialog(
-        title: const Text('Nueva sesión'),
+        insetPadding: const EdgeInsets.symmetric(horizontal: 24, vertical: 24),
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+        backgroundColor: cs.surfaceContainerHighest,
+        title: Row(
+          children: [
+            Icon(Icons.play_circle_outline, color: cs.primary),
+            const SizedBox(width: 8),
+            Text(
+              'Iniciar sesión',
+              style: Theme.of(ctx).textTheme.titleLarge?.copyWith(
+                fontWeight: FontWeight.w700,
+              ),
+            ),
+          ],
+        ),
         content: SingleChildScrollView(
-          child: Form(
-            key: formKey,
+          child: ConstrainedBox(
+            constraints: const BoxConstraints(minWidth: 280, maxWidth: 420),
             child: Column(
               mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.stretch,
               children: [
-                TextFormField(
-                  controller: labelCtrl,
-                  decoration: const InputDecoration(
-                    labelText: 'Nombre de la sesión (label) *',
-                  ),
-                  validator: (v) => (v == null || v.trim().isEmpty) ? 'Requerido' : null,
+                Text(
+                  'Selecciona la actividad que estás realizando. '
+                      'Se guardará como etiqueta inicial de esta sesión.',
+                  style: Theme.of(ctx)
+                      .textTheme
+                      .bodyMedium
+                      ?.copyWith(color: cs.onSurfaceVariant),
                 ),
                 const SizedBox(height: 12),
-                TextFormField(
-                  controller: reasonCtrl,
-                  decoration: const InputDecoration(
-                    labelText: 'Descripción / razón (opcional)',
+                InputDecorator(
+                  decoration: InputDecoration(
+                    labelText: 'Actividad',
+                    border: OutlineInputBorder(
+                      borderRadius: BorderRadius.circular(12),
+                    ),
                   ),
-                  maxLines: 3,
+                  child: DropdownButtonHideUnderline(
+                    child: DropdownButton<String>(
+                      value: _selected,
+                      isExpanded: true,
+                      menuMaxHeight: 320,
+                      hint: const Text('Elige una actividad'),
+                      items: actividades
+                          .map(
+                            (a) => DropdownMenuItem<String>(
+                          value: a,
+                          child: Text(a),
+                        ),
+                      )
+                          .toList(),
+                      onChanged: (v) {
+                        _selected = v;
+                        // Forzar rebuild del diálogo
+                        (ctx as Element).markNeedsBuild();
+                      },
+                    ),
+                  ),
                 ),
               ],
             ),
@@ -43,23 +87,21 @@ Future<(String, String)?> showSessionDialog(BuildContext context) async {
         ),
         actions: [
           TextButton(
-            onPressed: () => Navigator.of(ctx, rootNavigator: true).pop(null),
+            onPressed: () => Navigator.of(ctx).pop(null),
             child: const Text('Cancelar'),
           ),
-          FilledButton(
-            onPressed: () {
-              if (!formKey.currentState!.validate()) return;
-              Navigator.of(ctx, rootNavigator: true)
-                  .pop((labelCtrl.text.trim(), reasonCtrl.text.trim()));
+          FilledButton.icon(
+            icon: const Icon(Icons.check),
+            label: const Text('Aceptar'),
+            onPressed: _selected == null
+                ? null
+                : () {
+              // reason = 'initial'
+              Navigator.of(ctx).pop((_selected!, 'initial'));
             },
-            child: const Text('Iniciar'),
           ),
         ],
       );
     },
   );
-
-  // No dispose inmediato para evitar race con animaciones del Overlay.
-  // (Si quisieras, podrías: Future.microtask(() { labelCtrl.dispose(); reasonCtrl.dispose(); });)
-  return res;
 }
