@@ -27,6 +27,18 @@ class WebSocketService {
         } catch (_) {
           decoded = message;
         }
+
+        // ---- FILTRO CLAVE ----
+        // No completar RPCs con ACKs de ventanas ni "unknown".
+        if (decoded is Map && decoded.containsKey('type')) {
+          final t = decoded['type']?.toString();
+          if (t == 'window' || t == 'unknown') {
+            // Ignoramos estos mensajes para no romper el orden de los RPCs.
+            // Si quieres, aquí podrías emitir un stream con ACKs para debug/estadísticas.
+            return;
+          }
+        }
+
         if (_pending.isNotEmpty) {
           final c = _pending.removeAt(0);
           if (!c.isCompleted) c.complete(decoded);
@@ -34,6 +46,7 @@ class WebSocketService {
       },
       onDone: () {
         _connected = false;
+        // Reintentar conexión simple
         Future.delayed(const Duration(seconds: 2), () {
           if (!_connected) _connect();
         });
@@ -44,6 +57,7 @@ class WebSocketService {
           final c = _pending.removeAt(0);
           if (!c.isCompleted) c.completeError(e, st);
         }
+        // Reintentar conexión simple
         Future.delayed(const Duration(seconds: 2), () {
           if (!_connected) _connect();
         });
@@ -94,6 +108,34 @@ class WebSocketService {
     if (sessionId != null) payload['session_id'] = sessionId;
 
     _channel.sink.add(jsonEncode(payload));
+  }
+
+  // ---- RPCs para feedback de intervalos ----
+
+  Future<Map<String, dynamic>> getIntervalReason(int intervalId) async {
+    final resp = await sendRpc({
+      "type": "get_interval_reason",
+      "interval_id": intervalId,
+    });
+    if (resp is Map<String, dynamic>) return resp;
+    if (resp is Map) return Map<String, dynamic>.from(resp);
+    return {};
+  }
+
+  Future<Map<String, dynamic>> applyIntervalFeedback({
+    required int intervalId,
+    required String label,
+    required int duracionSeg,
+  }) async {
+    final resp = await sendRpc({
+      "type": "apply_interval_feedback",
+      "interval_id": intervalId,
+      "label": label,
+      "duracion": duracionSeg,
+    });
+    if (resp is Map<String, dynamic>) return resp;
+    if (resp is Map) return Map<String, dynamic>.from(resp);
+    return {};
   }
 
   Future<void> close() async {

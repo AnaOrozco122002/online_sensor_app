@@ -1,4 +1,5 @@
 // lib/main.dart
+import 'dart:async';
 import 'package:flutter/material.dart';
 import 'controllers/sensor_controller.dart';
 import 'models/sensor_window.dart';
@@ -9,6 +10,7 @@ import 'screens/auth_screen.dart';
 // Diálogo de inicio que devuelve (String label, String? reason)
 import 'widgets/session_dialog.dart';
 import 'widgets/profile_photo_dialog.dart';
+import 'widgets/feedback_dialog.dart'; // <-- NUEVO
 
 void main() {
   runApp(const MyApp());
@@ -103,11 +105,15 @@ class _SensorAppState extends State<SensorApp> {
   final SensorController _controller = SensorController();
   final WebSocketService _ws = WebSocketService();
 
-  String? _currentActivity; // etiqueta mostrada en UI
+  String? _currentActivity; // etiqueta a enviar en windows.etiqueta
   String _status = 'Sin sesión activa';
   DateTime? _lastSentAt;
   int? _activeIntervalId; // intervalos_label.id
   String? _avatarUrl;
+
+  // NUEVO: polling de reason
+  Timer? _reasonTimer;
+  bool _askingFeedback = false;
 
   @override
   void initState() {
@@ -141,6 +147,7 @@ class _SensorAppState extends State<SensorApp> {
   @override
   void dispose() {
     _controller.stopListening();
+    _reasonTimer?.cancel();
     _ws.close();
     super.dispose();
   }
@@ -174,14 +181,78 @@ class _SensorAppState extends State<SensorApp> {
     setState(() => _avatarUrl = newUrl);
   }
 
+  // ---------- Polling de reason ----------
+  void _startReasonPolling() {
+    _reasonTimer?.cancel();
+    _reasonTimer = Timer.periodic(const Duration(seconds: 10), (_) async {
+      final id = _activeIntervalId;
+      if (id == null || !_ws.isConnected) return;
+      if (_askingFeedback) return;
+
+      try {
+        final resp = await _ws.getIntervalReason(id);
+        if (resp['ok'] == true) {
+          final reason = (resp['reason'] ?? '')?.toString().toLowerCase();
+          if (reason == 'budget' ||
+              reason == 'switch' ||
+              reason == 'keep_alive' ||
+              reason == 'uncertainty') {
+            _askingFeedback = true;
+
+            // Mostrar diálogo para actividad + duración
+            final (String, int)? ans = await showFeedbackDialog(
+              context,
+              initialLabel: (resp['label'] ?? '')?.toString(),
+            );
+
+            if (ans != null) {
+              final String newLabel = ans.$1;
+              final int durSeg = ans.$2;
+
+              try {
+                final apply = await _ws.applyIntervalFeedback(
+                  intervalId: id,
+                  label: newLabel,
+                  duracionSeg: durSeg,
+                );
+                if (apply['ok'] == true) {
+                  setState(() {
+                    _currentActivity = newLabel; // actualizar etiqueta activa
+                    _status =
+                    'Feedback aplicado: $newLabel (${durSeg}s). reason=${apply['reason']}';
+                  });
+                } else {
+                  setState(() => _status =
+                  'No se pudo aplicar feedback: ${apply['message'] ?? apply['error'] ?? 'Error'}');
+                }
+              } catch (e) {
+                setState(() => _status = 'Error feedback: $e');
+              }
+            }
+
+            _askingFeedback = false;
+          }
+        }
+      } catch (_) {
+        // ignorar errores de red en el polling
+      }
+    });
+  }
+
+  void _stopReasonPolling() {
+    _reasonTimer?.cancel();
+    _reasonTimer = null;
+  }
+
   // ---------- Sesiones ----------
   Future<void> _startSession() async {
+    // Pedimos actividad (label) y devolvemos reason='initial'
     final res = await showSessionDialog(context);
     if (res == null) return;
 
     // res es (String, String?)
-    final String label = res.$1;
-    final String? reason = res.$2;
+    final String label = res.$1 as String;
+    final String? reason = res.$2 as String?;
 
     setState(() {
       _status = 'Creando sesión…';
@@ -193,7 +264,7 @@ class _SensorAppState extends State<SensorApp> {
         "type": "start_session",
         "id_usuario": widget.userId,
         "label": label,
-        "reason": reason, // normalmente "initial"
+        "reason": reason,
       });
 
       if (rpcResp is Map && rpcResp['ok'] == true) {
@@ -203,13 +274,14 @@ class _SensorAppState extends State<SensorApp> {
             _activeIntervalId = sid;
             _status = 'Sesión #$sid iniciada: $label';
           });
+          _startReasonPolling(); // <-- arrancar polling
         } else {
           setState(() => _status = 'Respuesta inválida del servidor (interval_id no int)');
         }
       } else {
         final msg = (rpcResp is Map)
             ? (rpcResp['message'] ?? rpcResp['error'] ?? 'Error')
-            : 'Respuesta no válida';
+            : 'Error';
         setState(() => _status = 'No se pudo iniciar sesión: $msg');
       }
     } catch (e) {
@@ -233,10 +305,11 @@ class _SensorAppState extends State<SensorApp> {
           _activeIntervalId = null;
           _currentActivity = null;
         });
+        _stopReasonPolling(); // <-- parar polling
       } else {
         final msg = (rpcResp is Map)
             ? (rpcResp['message'] ?? rpcResp['error'] ?? 'Error')
-            : 'Respuesta no válida';
+            : 'Error';
         setState(() => _status = 'No se pudo detener: $msg');
       }
     } catch (e) {
@@ -317,6 +390,7 @@ class _SensorAppState extends State<SensorApp> {
       body: SafeArea(
         child: LayoutBuilder(
           builder: (context, constraints) {
+            final isWide = constraints.maxWidth >= 640;
             return SingleChildScrollView(
               padding: EdgeInsets.only(
                 left: 16,
@@ -329,6 +403,7 @@ class _SensorAppState extends State<SensorApp> {
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.stretch,
                   children: [
+                    // Header usuario + acciones
                     Card(
                       elevation: 1,
                       shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
@@ -383,6 +458,7 @@ class _SensorAppState extends State<SensorApp> {
 
                     const SizedBox(height: 12),
 
+                    // Estado
                     _EstadoCard(
                       status: _status,
                       isConnected: _ws.isConnected,
