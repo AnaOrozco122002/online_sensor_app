@@ -28,24 +28,43 @@ class WebSocketService {
           decoded = message;
         }
 
-        // ---- FILTRO CLAVE ----
-        // No completar RPCs con ACKs de ventanas ni "unknown".
+        // --- IGNORAR ACKs de ventanas y mensajes que NO sean respuesta RPC válida ---
+
+        // 1) Si viene una LISTA (p.ej., múltiples ACKs), la ignoramos por completo.
+        if (decoded is List) {
+          // Evita que complete un RPC por error.
+          return;
+        }
+
+        // 2) Si es un MAP con 'type' window/unknown => también ignorar (ACKs/noise).
         if (decoded is Map && decoded.containsKey('type')) {
           final t = decoded['type']?.toString();
           if (t == 'window' || t == 'unknown') {
-            // Ignoramos estos mensajes para no romper el orden de los RPCs.
-            // Si quieres, aquí podrías emitir un stream con ACKs para debug/estadísticas.
             return;
           }
         }
 
-        if (_pending.isNotEmpty) {
+        // 3) Si no hay pendientes, no hay nada que completar.
+        if (_pending.isEmpty) return;
+
+        // 4) Aceptamos como "respuesta RPC" únicamente MAPs que parezcan payloads de RPC:
+        //    - Deben ser Map (no List, no String simple)
+        //    - Normalmente incluyen 'ok' o algún campo esperado por los RPC.
+        if (decoded is Map) {
           final c = _pending.removeAt(0);
           if (!c.isCompleted) c.complete(decoded);
+          return;
         }
+
+        // 5) Mensajes desconocidos (string bruto, binario, etc.) -> ignorar.
       },
       onDone: () {
         _connected = false;
+        // Completar todos los pendientes con error de desconexión
+        while (_pending.isNotEmpty) {
+          final c = _pending.removeAt(0);
+          if (!c.isCompleted) c.completeError(StateError('WS cerrado'));
+        }
         // Reintentar conexión simple
         Future.delayed(const Duration(seconds: 2), () {
           if (!_connected) _connect();

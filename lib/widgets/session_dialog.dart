@@ -1,104 +1,82 @@
 import 'package:flutter/material.dart';
 
-/// Devuelve: (actividad, reason) => reason fijo 'initial'
+/// Diálogo de inicio de sesión que devuelve (String labelModelo, String? reason).
+/// - Muestra solo 4 actividades visibles:
+///   "Caminar", "Sentarse/Pararse", "Escaleras", "Caída"
+/// - Mapea a las clases reales del modelo/DB:
+///   "caminar", "sentarse", "gradas", "caerse"
+/// - reason opcional (rellena "initial" si no se usa campo de texto)
 Future<(String, String?)?> showSessionDialog(BuildContext context) async {
-  final actividades = <String>[
-    'Caminar',
-    'Correr',
-    'Estar de pie',
-    'Sentado',
-    'Acostado',
-    'Subir escaleras',
-    'Bajar escaleras',
-    'Ciclismo',
-  ];
+  // Mapeo display -> modelo
+  const Map<String, String> displayToModel = {
+    'Caminar': 'caminar',
+    'Sentarse/Pararse': 'sentarse',
+    'Escaleras': 'gradas',
+    'Caída': 'caerse',
+  };
 
-  String? _selected; // actividad seleccionada
+  final actividadesDisplay = displayToModel.keys.toList();
+  String selectedDisplay = actividadesDisplay.first;
 
-  return showDialog<(String, String?)>(
+  // Si no usas campo de texto para reason, puedes fijarla a 'initial'
+  String? reason = 'initial';
+
+  return showDialog<(String, String?)?>(
     context: context,
     barrierDismissible: false,
-    builder: (ctx) {
-      final cs = Theme.of(ctx).colorScheme;
+    builder: (_) {
       return AlertDialog(
-        insetPadding: const EdgeInsets.symmetric(horizontal: 24, vertical: 24),
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
-        backgroundColor: cs.surfaceContainerHighest,
-        title: Row(
+        title: const Text('Iniciar sesión'),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
           children: [
-            Icon(Icons.play_circle_outline, color: cs.primary),
-            const SizedBox(width: 8),
-            Text(
-              'Iniciar sesión',
-              style: Theme.of(ctx).textTheme.titleLarge?.copyWith(
-                fontWeight: FontWeight.w700,
+            Align(
+              alignment: Alignment.centerLeft,
+              child: Text('Actividad inicial',
+                  style: Theme.of(context).textTheme.labelLarge),
+            ),
+            const SizedBox(height: 6),
+            StatefulBuilder(
+              builder: (ctx, setSB) {
+                return DropdownButtonFormField<String>(
+                  value: selectedDisplay,
+                  items: [
+                    for (final a in actividadesDisplay)
+                      DropdownMenuItem(value: a, child: Text(a)),
+                  ],
+                  onChanged: (v) => setSB(() => selectedDisplay = v ?? selectedDisplay),
+                  decoration: const InputDecoration(
+                    border: OutlineInputBorder(),
+                    isDense: true,
+                  ),
+                );
+              },
+            ),
+            // Si deseas incluir un campo para reason, descomenta esto:
+            /*
+            const SizedBox(height: 12),
+            TextFormField(
+              decoration: const InputDecoration(
+                labelText: 'Razón (opcional)',
+                border: OutlineInputBorder(),
+                isDense: true,
               ),
+              onChanged: (v) => reason = v.trim().isEmpty ? null : v.trim(),
             ),
+            */
           ],
-        ),
-        content: SingleChildScrollView(
-          child: ConstrainedBox(
-            constraints: const BoxConstraints(minWidth: 280, maxWidth: 420),
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              crossAxisAlignment: CrossAxisAlignment.stretch,
-              children: [
-                Text(
-                  'Selecciona la actividad que estás realizando. '
-                      'Se guardará como etiqueta inicial de esta sesión.',
-                  style: Theme.of(ctx)
-                      .textTheme
-                      .bodyMedium
-                      ?.copyWith(color: cs.onSurfaceVariant),
-                ),
-                const SizedBox(height: 12),
-                InputDecorator(
-                  decoration: InputDecoration(
-                    labelText: 'Actividad',
-                    border: OutlineInputBorder(
-                      borderRadius: BorderRadius.circular(12),
-                    ),
-                  ),
-                  child: DropdownButtonHideUnderline(
-                    child: DropdownButton<String>(
-                      value: _selected,
-                      isExpanded: true,
-                      menuMaxHeight: 320,
-                      hint: const Text('Elige una actividad'),
-                      items: actividades
-                          .map(
-                            (a) => DropdownMenuItem<String>(
-                          value: a,
-                          child: Text(a),
-                        ),
-                      )
-                          .toList(),
-                      onChanged: (v) {
-                        _selected = v;
-                        // Forzar rebuild del diálogo
-                        (ctx as Element).markNeedsBuild();
-                      },
-                    ),
-                  ),
-                ),
-              ],
-            ),
-          ),
         ),
         actions: [
           TextButton(
-            onPressed: () => Navigator.of(ctx).pop(null),
+            onPressed: () => Navigator.of(context).pop(null),
             child: const Text('Cancelar'),
           ),
-          FilledButton.icon(
-            icon: const Icon(Icons.check),
-            label: const Text('Aceptar'),
-            onPressed: _selected == null
-                ? null
-                : () {
-              // reason = 'initial'
-              Navigator.of(ctx).pop((_selected!, 'initial'));
+          FilledButton(
+            onPressed: () {
+              final String modelLabel = displayToModel[selectedDisplay]!;
+              Navigator.of(context).pop((modelLabel, reason));
             },
+            child: const Text('Iniciar'),
           ),
         ],
       );

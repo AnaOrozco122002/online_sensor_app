@@ -1,28 +1,39 @@
-// lib/widgets/feedback_dialog.dart
 import 'package:flutter/material.dart';
 
 /// Muestra un diálogo para elegir actividad (dropdown) y duración (min/seg).
-/// Devuelve (String label, int duracionSeg) o null si cancela.
+/// Devuelve (String labelModelo, int duracionSeg) o null si cancela.
+///
+/// NOTA:
+/// - Las opciones visibles son: "Caminar", "Sentarse/Pararse", "Escaleras", "Caída".
+/// - Se mapean a las clases del modelo/DB: "caminar", "sentarse", "gradas", "caerse".
+/// - El servidor espera y guarda el label del modelo.
 Future<(String, int)?> showFeedbackDialog(
     BuildContext context, {
-      String? initialLabel,
+      String? initialLabel, // valor del modelo (ej: "caminar", "sentarse", "gradas", "caerse")
     }) async {
-  final actividades = <String>[
-    'Sentado',
-    'De pie',
-    'Caminando',
-    'Trotando',
-    'Subiendo escaleras',
-    'Bajando escaleras',
-    'En vehículo',
-    'Bici',
-    'Dormido',
-    'Otro',
-  ];
+  // Mapeo display -> modelo
+  const Map<String, String> displayToModel = {
+    'Caminar': 'caminar',
+    'Sentarse/Pararse': 'sentarse',
+    'Escaleras': 'gradas',
+    'Caída': 'caerse',
+  };
+  // Mapeo modelo -> display
+  const Map<String, String> modelToDisplay = {
+    'caminar': 'Caminar',
+    'sentarse': 'Sentarse/Pararse',
+    'gradas': 'Escaleras',
+    'caerse': 'Caída',
+  };
 
-  String label = initialLabel != null && actividades.contains(initialLabel)
-      ? initialLabel
-      : actividades.first;
+  final actividadesDisplay = displayToModel.keys.toList();
+
+  // Resuelve etiqueta inicial a display (si viene en formato modelo)
+  String initialDisplay =
+      modelToDisplay[initialLabel?.toLowerCase().trim() ?? ''] ??
+          actividadesDisplay.first;
+
+  String selectedDisplay = initialDisplay;
 
   int minSel = 0; // 0..10
   int segSel = 0; // 0..59
@@ -46,12 +57,12 @@ Future<(String, int)?> showFeedbackDialog(
             StatefulBuilder(
               builder: (ctx, setSB) {
                 return DropdownButtonFormField<String>(
-                  value: label,
+                  value: selectedDisplay,
                   items: [
-                    for (final a in actividades)
+                    for (final a in actividadesDisplay)
                       DropdownMenuItem(value: a, child: Text(a)),
                   ],
-                  onChanged: (v) => setSB(() => label = v ?? label),
+                  onChanged: (v) => setSB(() => selectedDisplay = v ?? selectedDisplay),
                   decoration: const InputDecoration(
                     border: OutlineInputBorder(),
                     isDense: true,
@@ -109,7 +120,10 @@ Future<(String, int)?> showFeedbackDialog(
               alignment: Alignment.centerLeft,
               child: Text(
                 'Se enviará en segundos.',
-                style: Theme.of(context).textTheme.bodySmall?.copyWith(color: cs.onSurfaceVariant),
+                style: Theme.of(context)
+                    .textTheme
+                    .bodySmall
+                    ?.copyWith(color: cs.onSurfaceVariant),
               ),
             ),
           ],
@@ -122,7 +136,8 @@ Future<(String, int)?> showFeedbackDialog(
           FilledButton(
             onPressed: () {
               final totalSeg = minSel * 60 + segSel;
-              Navigator.of(context).pop((label, totalSeg));
+              final String modelLabel = displayToModel[selectedDisplay]!;
+              Navigator.of(context).pop((modelLabel, totalSeg));
             },
             child: const Text('Confirmar'),
           ),
